@@ -1,6 +1,10 @@
 #![cfg_attr(not(test), no_std)]
 
-use core::{cmp::min, fmt, ops::Range};
+use core::{
+    cmp::min,
+    fmt,
+    ops::{Range, RangeBounds},
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -10,7 +14,7 @@ pub enum BitMapError {
 }
 
 #[repr(transparent)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct Segment(usize);
 
 impl Segment {
@@ -50,12 +54,10 @@ impl Segment {
             return Err(BitMapError::OutOfBounds);
         }
 
-        let mask = 1usize.unbounded_shl(bits.len() as u32).wrapping_sub(1);
-
-        #[cfg(test)]
-        println!("BITS {}..{}   MASK {mask:b}", bits.start, bits.end);
-
-        self.0 |= mask.unbounded_shl(bits.start as u32);
+        self.0 |= 1usize
+            .unbounded_shl(bits.len() as u32)
+            .wrapping_sub(1)
+            .unbounded_shl(bits.start as u32);
 
         Ok(())
     }
@@ -65,8 +67,10 @@ impl Segment {
             return Err(BitMapError::OutOfBounds);
         }
 
-        let mask = 1usize.unbounded_shl(bits.len() as u32).wrapping_sub(1);
-        self.0 &= !mask.unbounded_shl(bits.start as u32);
+        self.0 &= !1usize
+            .unbounded_shl(bits.len() as u32)
+            .wrapping_sub(1)
+            .unbounded_shl(bits.start as u32);
 
         Ok(())
     }
@@ -109,6 +113,23 @@ impl BitMap<'_> {
         }
     }
 
+    #[inline(always)]
+    fn range_bounds_to_bits(&self, bounds: impl RangeBounds<usize>) -> Range<usize> {
+        let start_bit = match bounds.start_bound() {
+            core::ops::Bound::Included(bound) => *bound,
+            core::ops::Bound::Excluded(bound) => *bound + 1,
+            core::ops::Bound::Unbounded => 0,
+        };
+
+        let end_bit = match bounds.end_bound() {
+            core::ops::Bound::Included(bound) => *bound + 1,
+            core::ops::Bound::Excluded(bound) => *bound,
+            core::ops::Bound::Unbounded => self.bit_len,
+        };
+
+        start_bit..end_bit
+    }
+
     pub fn get_bit(&self, index: usize) -> Result<bool, BitMapError> {
         if index >= self.bit_len {
             return Err(BitMapError::OutOfBounds);
@@ -140,7 +161,9 @@ impl BitMap<'_> {
         Ok(())
     }
 
-    pub fn set_bits(&mut self, mut bits: Range<usize>) -> Result<(), BitMapError> {
+    pub fn set_bits(&mut self, bounds: impl RangeBounds<usize>) -> Result<(), BitMapError> {
+        let mut bits = self.range_bounds_to_bits(bounds);
+
         if bits.end > self.bit_len {
             return Err(BitMapError::OutOfBounds);
         }
@@ -166,7 +189,9 @@ impl BitMap<'_> {
             })
     }
 
-    pub fn unset_bits(&mut self, mut bits: Range<usize>) -> Result<(), BitMapError> {
+    pub fn unset_bits(&mut self, bounds: impl RangeBounds<usize>) -> Result<(), BitMapError> {
+        let mut bits = self.range_bounds_to_bits(bounds);
+
         if bits.end > self.bit_len {
             return Err(BitMapError::OutOfBounds);
         }
@@ -225,19 +250,20 @@ impl fmt::Binary for BitMap<'_> {
 #[test]
 fn test() {
     unsafe {
-        let memory = std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(0xC0, 0x1));
-        let memory =
-            std::slice::from_raw_parts_mut(memory.cast::<Segment>(), 0xC0 >> Segment::BITS_SHIFT);
+        const SEGMENT_LEN: usize = 2;
+        let memory = std::alloc::alloc(std::alloc::Layout::new::<[Segment; SEGMENT_LEN]>());
+        let memory = std::slice::from_raw_parts_mut(memory.cast::<Segment>(), SEGMENT_LEN);
 
         let mut bitmap = BitMap {
             bits: memory,
-            bit_len: 192,
+            bit_len: 128,
         };
 
+        bitmap.set_bits(63..66).unwrap();
         println!("{bitmap:b}");
-        bitmap.set_bits(64..72).unwrap();
+        assert_eq!(bitmap.bits, [Segment(0b1 << 63), Segment(0b11)]);
+        bitmap.unset_bits(64..65).unwrap();
         println!("{bitmap:b}");
-        bitmap.unset_bits(65..71).unwrap();
-        println!("{bitmap:b}");
+        assert_eq!(bitmap.bits, [Segment(0b1 << 63), Segment(0b10)]);
     }
 }
