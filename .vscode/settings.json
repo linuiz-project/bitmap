@@ -1,0 +1,10 @@
+{
+    "git.enableCommitSigning": true,
+    "[rust]": {
+        "editor.rulers": [
+            80,
+            100
+        ],
+        "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    },
+}
