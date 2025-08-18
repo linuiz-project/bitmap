@@ -1,6 +1,10 @@
 #![cfg_attr(not(test), no_std)]
+#![feature(unchecked_shifts)]
 
-use core::{cmp::min, convert::Infallible, fmt, ops::Range};
+#[cfg(test)]
+mod tests;
+
+use core::{cmp::min, convert::Infallible, fmt, num::NonZero, ops::Range};
 use thiserror::Error;
 
 #[repr(transparent)]
@@ -47,14 +51,37 @@ impl Segment {
             .unbounded_shl(bits.start as u32);
     }
 
-    pub fn next_free(self) -> Option<usize> {
+    pub fn next_free(self) -> Option<u32> {
         match self.0.leading_ones() {
-            free_bit_index @ 0..usize::BITS => Some(free_bit_index as usize),
+            free_bit_index @ 0..usize::BITS => Some(free_bit_index),
             usize::BITS => None,
 
             // Safety: `usize::leading_ones()` cannot overflow `usize::BITS`.
             _ => unsafe { core::hint::unreachable_unchecked() },
         }
+    }
+
+    pub fn next_free_many(self, bit_count: NonZero<u32>) -> Option<u32> {
+        let size_mask = 1usize.unbounded_shl(bit_count.get()).wrapping_sub(1);
+        let mut bit_offset = self.0.trailing_ones();
+
+        while (bit_offset + bit_count.get()) <= usize::BITS {
+            // Safety: `bit_offset` is checked to less than `usize::BITS`.
+            let bits = unsafe { self.0.unchecked_shr(bit_offset) };
+
+            if (bits & size_mask) == 0 {
+                return Some(bit_offset);
+            } else {
+                let trailing_zeros = bits.trailing_zeros();
+                let offset_trailing_ones = bits.unbounded_shr(trailing_zeros).trailing_ones();
+
+                // We want to shift off both the trailing zeros and ones (to get
+                // to the next zeros to test).
+                bit_offset += offset_trailing_ones + trailing_zeros;
+            }
+        }
+
+        None
     }
 }
 
@@ -228,8 +255,38 @@ impl<'a> BitMap<'a> {
         index.unset(self)
     }
 
-    pub fn next_free(&self) -> Option<usize> {
-        self.segments.iter().find_map(|segment| segment.next_free())
+    pub fn next_free(&self, size: NonZero<usize>) -> Option<usize> {
+        match size.get() {
+            0 => {
+                // Safety: `size` is non-zero.
+                unsafe { core::hint::unreachable_unchecked() }
+            }
+
+            1 => self
+                .segments
+                .iter()
+                .enumerate()
+                .find_map(|(index, segment)| {
+                    segment
+                        .next_free()
+                        .map(|bit_index| (index * Segment::BITS) + (bit_index as usize))
+                }),
+
+            size => {
+                let mut segment_iter = self.segments.iter();
+                let mut first_index = 0;
+                let mut current_run = 0;
+
+                while current_run < size {
+                    let remaining_run = size - current_run;
+
+                    let segment = segment_iter.next()?;
+                    let segment_first_free_index = segment.0.count_ones();
+                }
+
+                todo!()
+            }
+        }
     }
 }
 
@@ -255,23 +312,5 @@ impl fmt::Binary for BitMap<'_> {
         });
 
         bitmap_set.finish()
-    }
-}
-
-#[test]
-fn test() {
-    unsafe {
-        const SEGMENT_LEN: usize = 2;
-        let memory = std::alloc::alloc(std::alloc::Layout::new::<[Segment; SEGMENT_LEN]>());
-        let memory = std::slice::from_raw_parts_mut(memory.cast::<usize>(), SEGMENT_LEN);
-
-        let mut bitmap = BitMap::new(memory, 128);
-
-        bitmap.set(63..66).unwrap();
-        println!("{bitmap:b}");
-        assert_eq!(bitmap.segments, [Segment(0b1 << 63), Segment(0b11)]);
-        bitmap.unset(64..65).unwrap();
-        println!("{bitmap:b}");
-        assert_eq!(bitmap.segments, [Segment(0b1 << 63), Segment(0b10)]);
     }
 }
