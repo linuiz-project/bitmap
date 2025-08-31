@@ -219,8 +219,8 @@ impl<'a> BitMap<'a> {
 
     /// # Safety
     ///
-    /// - `bits` must be convertible to a mutable reference, except that the
-    ///   data may be unitialized (it will be zeroed).
+    /// - `bits` must be [convertible to a mutable reference](https://doc.rust-lang.org/nightly/core/ptr/index.html#pointer-to-reference-conversion),
+    ///   except that the data may be unitialized (it will be zeroed).
     pub unsafe fn new_from_ptr(bits: NonNull<[usize]>, valid_bit_length: usize) -> Self {
         // Safety: Caller is required to maintain safety invariants.
         unsafe {
