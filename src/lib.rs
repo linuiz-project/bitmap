@@ -1,5 +1,5 @@
 #![cfg_attr(not(test), no_std)]
-#![feature(unchecked_shifts)]
+#![feature(slice_ptr_get, unchecked_shifts)]
 
 mod segment;
 
@@ -10,7 +10,7 @@ pub use index::*;
 mod tests;
 
 use crate::segment::Segment;
-use core::{cmp::min, fmt, num::NonZero};
+use core::{cmp::min, fmt, num::NonZero, ptr::NonNull};
 use thiserror::Error;
 
 fn decompose_bitmap_index(index: usize) -> (usize, usize) {
@@ -21,7 +21,7 @@ fn decompose_bitmap_index(index: usize) -> (usize, usize) {
 }
 
 fn bitmap_get_bit(index: usize, bitmap: &BitMap) -> Result<bool, BitMapError> {
-    if index >= bitmap.bit_len {
+    if index >= bitmap.valid_bit_length {
         return Err(BitMapError::OutOfBounds);
     }
 
@@ -39,7 +39,7 @@ fn bitmap_get_bits(
     end_bit_exclusive: usize,
     bitmap: &BitMap,
 ) -> Result<bool, BitMapError> {
-    if end_bit_exclusive > bitmap.bit_len {
+    if end_bit_exclusive > bitmap.valid_bit_length {
         return Err(BitMapError::OutOfBounds);
     }
 
@@ -68,7 +68,7 @@ fn bitmap_get_bits(
 }
 
 fn bitmap_set_bit(index: usize, bitmap: &mut BitMap, set: bool) -> Result<(), BitMapError> {
-    if index >= bitmap.bit_len {
+    if index >= bitmap.valid_bit_length {
         return Err(BitMapError::OutOfBounds);
     }
 
@@ -92,7 +92,7 @@ fn bitmap_set_bits(
     bitmap: &mut BitMap,
     set: bool,
 ) -> Result<(), BitMapError> {
-    if end_bit_exclusive > bitmap.bit_len {
+    if end_bit_exclusive > bitmap.valid_bit_length {
         return Err(BitMapError::OutOfBounds);
     }
 
@@ -198,11 +198,11 @@ pub enum BitMapError {
 
 pub struct BitMap<'a> {
     segments: &'a mut [Segment],
-    bit_len: usize,
+    valid_bit_length: usize,
 }
 
 impl<'a> BitMap<'a> {
-    pub fn new(bits: &'a mut [usize], real_bit_len: usize) -> Self {
+    pub fn new(bits: &'a mut [usize], valid_bit_length: usize) -> Self {
         // Clear the bitmap.
         bits.fill(0);
 
@@ -213,7 +213,30 @@ impl<'a> BitMap<'a> {
 
         Self {
             segments,
-            bit_len: real_bit_len,
+            valid_bit_length,
+        }
+    }
+
+    /// # Safety
+    ///
+    /// - `bits` must be convertible to a mutable reference, except that the
+    ///   data may be unitialized (it will be zeroed).
+    pub unsafe fn new_from_ptr(bits: NonNull<[usize]>, valid_bit_length: usize) -> Self {
+        // Safety: Caller is required to maintain safety invariants.
+        unsafe {
+            core::ptr::write_bytes(bits.as_mut_ptr(), 0, bits.len() * size_of::<usize>());
+        }
+
+        // Safety:
+        // - `bits` has been statically initialized to zeros.
+        // - Caller is required to maintain other invariants.
+        let segments = unsafe {
+            core::slice::from_raw_parts_mut::<'a>(bits.as_mut_ptr().cast::<Segment>(), bits.len())
+        };
+
+        Self {
+            segments,
+            valid_bit_length,
         }
     }
 
@@ -284,7 +307,7 @@ impl PartialEq<&[usize]> for BitMap<'_> {
 impl fmt::Debug for BitMap<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BitMap")
-            .field("Bit Length", &self.bit_len)
+            .field("Bit Length", &self.valid_bit_length)
             .field("Bits", &self.segments)
             .finish()
     }

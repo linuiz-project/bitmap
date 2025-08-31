@@ -53,28 +53,28 @@ impl BitMapIndex for core::ops::RangeTo<usize> {
 
 impl BitMapIndex for core::ops::RangeFrom<usize> {
     fn get(&self, bitmap: &BitMap) -> Result<bool, BitMapError> {
-        bitmap_get_bits(self.start, bitmap.bit_len, bitmap)
+        bitmap_get_bits(self.start, bitmap.valid_bit_length, bitmap)
     }
 
     fn set(&self, bitmap: &mut BitMap) -> Result<(), BitMapError> {
-        bitmap_set_bits(self.start, bitmap.bit_len, bitmap, true)
+        bitmap_set_bits(self.start, bitmap.valid_bit_length, bitmap, true)
     }
 
     fn unset(&self, bitmap: &mut BitMap) -> Result<(), BitMapError> {
-        bitmap_set_bits(self.start, bitmap.bit_len, bitmap, false)
+        bitmap_set_bits(self.start, bitmap.valid_bit_length, bitmap, false)
     }
 }
 
 impl BitMapIndex for core::ops::RangeFull {
     fn get(&self, bitmap: &BitMap) -> Result<bool, BitMapError> {
-        bitmap_get_bits(0, bitmap.bit_len, bitmap)
+        bitmap_get_bits(0, bitmap.valid_bit_length, bitmap)
     }
 
     fn set(&self, bitmap: &mut BitMap) -> Result<(), BitMapError> {
-        bitmap_set_bits(0, bitmap.bit_len, bitmap, true)
+        bitmap_set_bits(0, bitmap.valid_bit_length, bitmap, true)
     }
 
     fn unset(&self, bitmap: &mut BitMap) -> Result<(), BitMapError> {
-        bitmap_set_bits(0, bitmap.bit_len, bitmap, false)
+        bitmap_set_bits(0, bitmap.valid_bit_length, bitmap, false)
     }
 }
